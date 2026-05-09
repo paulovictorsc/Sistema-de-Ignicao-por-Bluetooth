@@ -1,0 +1,268 @@
+#include <Arduino.h>
+#include <BluetoothSerial.h>
+
+BluetoothSerial SerialBT;
+
+#define IGNITION_PIN 5
+
+// ====================== ESTADOS ======================
+enum State {
+  MENU,
+  IGNICAO_MANUAL,
+  TESTE_MENU,
+  TESTE_ARMADO,
+  TESTE_COUNTDOWN,
+  TESTE_RODANDO,
+  TESTE_FINAL
+};
+
+State currentState = MENU;
+
+// ====================== IGNICAO ======================
+bool ignitionActive = false;
+unsigned long ignitionStart = 0;
+const unsigned long ignitionTime = 3000;
+
+// ====================== TESTE ======================
+unsigned long countdownStart = 0;
+int countdown = 5;
+
+unsigned long testStart = 0;
+unsigned long maxTestTime = 15000; // segurança 15s
+
+bool burnDetected = true; // placeholder (futuro HX711)
+
+// ====================== HEARTBEAT ======================
+unsigned long lastHeartbeat = 0;
+const unsigned long heartbeatInterval = 300;
+
+// =====================================================
+void showMenu() {
+  SerialBT.println("\n===== MENU =====");
+  SerialBT.println("1 - Ignicao Manual");
+  SerialBT.println("2 - Teste Estatico");
+}
+
+void showTesteMenu() {
+  SerialBT.println("\n===== TESTE =====");
+  SerialBT.println("1 - ARMAR TESTE");
+  SerialBT.println("2 - VOLTAR");
+}
+
+// =====================================================
+void startIgnition() {
+
+  digitalWrite(IGNITION_PIN, HIGH);
+
+  ignitionActive = true;
+  ignitionStart = millis();
+}
+
+// =====================================================
+void setup() {
+
+  Serial.begin(115200);
+
+  pinMode(IGNITION_PIN, OUTPUT);
+  digitalWrite(IGNITION_PIN, LOW);
+
+  SerialBT.begin("SISTEMA");
+
+  Serial.println("Sistema iniciado");
+}
+
+// =====================================================
+void loop() {
+
+  // ================= CONEXAO =================
+  static bool connected = false;
+
+  if (SerialBT.hasClient()) {
+
+    if (!connected) {
+      connected = true;
+
+      SerialBT.println("CONECTADO");
+      showMenu();
+    }
+  } else {
+    connected = false;
+  }
+
+  // ================= INPUT =================
+  if (SerialBT.available()) {
+
+    char cmd = SerialBT.read();
+
+    if (cmd == '\n' || cmd == '\r') return;
+
+    // ================= MENU =================
+    if (currentState == MENU) {
+
+      if (cmd == '1') {
+
+        currentState = IGNICAO_MANUAL;
+
+        SerialBT.println("\nIGNICAO MANUAL");
+        SerialBT.println("b = disparar");
+      }
+
+      if (cmd == '2') {
+
+        currentState = TESTE_MENU;
+
+        showTesteMenu();
+      }
+    }
+
+    // ================= MANUAL =================
+    else if (currentState == IGNICAO_MANUAL) {
+
+      if (cmd == 'b' && !ignitionActive) {
+
+        startIgnition();
+
+        SerialBT.println("IGNICAO ACIONADA");
+      }
+
+      if (cmd == '0') {
+
+        currentState = MENU;
+        showMenu();
+      }
+    }
+
+    // ================= TESTE MENU =================
+    else if (currentState == TESTE_MENU) {
+
+      if (cmd == '1') {
+
+        currentState = TESTE_ARMADO;
+
+        SerialBT.println("TESTE ARMADO");
+        SerialBT.println("Pronto para contagem");
+      }
+
+      if (cmd == '2') {
+
+        currentState = MENU;
+        showMenu();
+      }
+    }
+
+    // ================= TESTE ARMADO =================
+    else if (currentState == TESTE_ARMADO) {
+
+      if (cmd == '1') {
+
+        currentState = TESTE_COUNTDOWN;
+
+        countdown = 5;
+        countdownStart = millis();
+
+        SerialBT.println("COUNTDOWN INICIADO");
+      }
+
+      if (cmd == '0') {
+
+        currentState = MENU;
+        showMenu();
+      }
+    }
+  }
+
+  // ================= HEARTBEAT MANUAL =================
+  if (currentState == IGNICAO_MANUAL && !ignitionActive) {
+
+    if (millis() - lastHeartbeat >= heartbeatInterval) {
+
+      SerialBT.println("Pronto para Acionar, mande 'b'");
+
+      lastHeartbeat = millis();
+    }
+  }
+
+  // ================= DESLIGA IGNICAO =================
+  if (ignitionActive &&
+      millis() - ignitionStart >= ignitionTime) {
+
+    digitalWrite(IGNITION_PIN, LOW);
+
+    ignitionActive = false;
+
+    SerialBT.println("IGNICAO DESLIGADA");
+  }
+
+  // ================= COUNTDOWN =================
+  if (currentState == TESTE_COUNTDOWN) {
+
+    if (millis() - countdownStart >= 1000) {
+
+      countdown--;
+
+      countdownStart = millis();
+
+      if (countdown > 0) {
+
+        SerialBT.print("T-");
+        SerialBT.println(countdown);
+      } else {
+
+        SerialBT.println("IGNICAO!");
+
+        startIgnition();
+
+        currentState = TESTE_RODANDO;
+
+        testStart = millis();
+      }
+    }
+  }
+
+  // ================= TESTE RODANDO =================
+  if (currentState == TESTE_RODANDO) {
+
+    unsigned long t = millis() - testStart;
+
+    SerialBT.print("TESTE: ");
+    SerialBT.print(t / 1000.0);
+    SerialBT.println("s");
+
+    // SIMULA DETECCAO DE QUEIMA (FUTURO HX711)
+    if (t > 5000) {
+      burnDetected = false;
+    }
+
+    // FIM NATURAL (QUEIMA ACABOU)
+    if (!ignitionActive && !burnDetected) {
+
+      SerialBT.println("QUEIMA FINALIZADA");
+
+      currentState = TESTE_FINAL;
+    }
+
+    // TIMEOUT SEGURANÇA
+    if (t > maxTestTime) {
+
+      SerialBT.println("TIMEOUT - ENCERRANDO TESTE");
+
+      digitalWrite(IGNITION_PIN, LOW);
+      ignitionActive = false;
+
+      currentState = TESTE_FINAL;
+    }
+  }
+
+  // ================= FINAL =================
+  if (currentState == TESTE_FINAL) {
+
+    SerialBT.println("===== TESTE FINALIZADO =====");
+
+    SerialBT.println("Resumo:");
+    SerialBT.println("- Motor queimou OK");
+    SerialBT.println("- Sistema encerrado");
+
+    currentState = MENU;
+    showMenu();
+  }
+}
