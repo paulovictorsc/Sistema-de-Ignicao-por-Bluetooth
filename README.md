@@ -66,8 +66,3 @@ Além da aplicação prática em foguetes experimentais, o sistema também serve
 ## Status do Projeto
 
 Em desenvolvimento e testes.
-
----
-
-## Imagens do Projeto
-![imagem](diagramaesquematico.png)
