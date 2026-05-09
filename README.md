@@ -66,3 +66,21 @@ Além da aplicação prática em foguetes experimentais, o sistema também serve
 ## Status do Projeto
 
 Em desenvolvimento e testes.
+
+---
+
+## Diagrama Elétrico
+
+O sistema utiliza um ESP32 para controle remoto da ignição via Bluetooth.
+
+O circuito foi dividido em:
+- sistema de controle (ESP32)
+- sistema de potência da ignição
+- chave de segurança
+- alimentação independente
+
+### Esquemático
+
+![1000069506](https://github.com/user-attachments/assets/fddcfe5e-8493-4849-929c-c99995826e23)
+
+
